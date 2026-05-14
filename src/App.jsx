@@ -3,6 +3,8 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import LoginPage from './pages/auth/LoginPage'
 import DashboardPage from './pages/dashboard/DashboardPage'
 import Layout from './components/Layout'
+import ExpenseListPage from './pages/expense/ExpenseListPage'
+import ExpenseFormPage from './pages/expense/ExpenseFormPage'
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -24,6 +26,8 @@ function AppRoutes() {
         </ProtectedRoute>
       }>
         <Route index element={<DashboardPage />} />
+        <Route path="expense" element={<ExpenseListPage />} />
+        <Route path="expense/new" element={<ExpenseFormPage />} />
       </Route>
     </Routes>
   )

@@ -2,11 +2,12 @@ import { Outlet, NavLink } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 const navItems = [
-  { to: '/', label: '總覽', end: true },
+  { to: '/',        label: '總覽',   end: true  },
+  { to: '/expense', label: '支出請款', end: false },
 ]
 
 export default function Layout() {
-  const { profile, signOut } = useAuth()
+  const { user, profile, signOut } = useAuth()
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -28,7 +29,9 @@ export default function Layout() {
           ))}
         </nav>
         <div className="p-3 border-t border-gray-100">
-          <p className="text-xs text-gray-500 px-3 mb-2">{profile?.full_name ?? user?.email}</p>
+          <p className="text-xs text-gray-500 px-3 mb-2">
+            {profile?.full_name ?? user?.email}
+          </p>
           <button onClick={signOut}
             className="w-full text-left px-3 py-2 text-sm text-gray-500 hover:bg-gray-50 rounded-lg transition">
             登出

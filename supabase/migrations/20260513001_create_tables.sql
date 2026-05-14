@@ -25,6 +25,7 @@ CREATE TABLE donors (
     receipt_pref INTEGER DEFAULT 0, -- 0:不需要, 1:單次, 2:年度
     is_active BOOLEAN DEFAULT TRUE,
     remarks TEXT,
+    note TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
