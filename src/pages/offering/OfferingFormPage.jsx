@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
-
-const ANONYMOUS_DONOR_ID = '217083cb-b291-4860-8a44-6958d0fe0d62'
 
 function todayStr() {
   return new Date().toISOString().split('T')[0]
@@ -19,7 +17,7 @@ const EMPTY_FORM = {
   amount:            '',
   offering_date:     todayStr(),
   accounting_week:   '',
-  payment_method_id: '',   // 直接對應 payment_methods.id
+  offering_method_id: '',   // 直接對應 offering_methods.id
   bank_account_id:   '',
   transfer_info:     '',
   receipt_pref:      '0',  // 0=待確認 1=單次 2=年度 3=不需要
@@ -100,13 +98,16 @@ function DonorCombobox({ donors, donorId, onSelect, onQuickAdd }) {
 export default function OfferingFormPage() {
   const { profile } = useAuth()
   const navigate    = useNavigate()
+  const { id }      = useParams()
+  const isEdit      = !!id
 
   // 查詢資料
-  const [offeringTypes,  setOfferingTypes]  = useState([])
-  const [funds,          setFunds]          = useState([])
-  const [donors,         setDonors]         = useState([])
-  const [bankAccounts,   setBankAccounts]   = useState([])
-  const [paymentMethods, setPaymentMethods] = useState([])
+  const [offeringTypes,   setOfferingTypes]   = useState([])
+  const [funds,           setFunds]           = useState([])
+  const [donors,          setDonors]          = useState([])
+  const [bankAccounts,    setBankAccounts]    = useState([])
+  const [paymentMethods,  setPaymentMethods]  = useState([])
+  const [anonymousDonorId, setAnonymousDonorId] = useState(null)
 
   // 表單
   const [form,       setForm]       = useState(EMPTY_FORM)
@@ -130,17 +131,19 @@ export default function OfferingFormPage() {
   // ── 載入查詢資料 ──────────────────────────────────────────
   async function loadData() {
     try {
-      const [typesRes, fundsRes, donorsRes, banksRes, methodsRes] = await Promise.all([
+      const [typesRes, fundsRes, donorsRes, banksRes, methodsRes, anonRes] = await Promise.all([
         supabase.from('offering_types').select('*').not('envelope_label', 'is', null).order('id'),
         supabase.from('ministry_funds').select('*').order('name'),
-        supabase.from('donors').select('id, main_id, sub_id, name').eq('is_active', true).neq('id', ANONYMOUS_DONOR_ID).order('name'),
+        supabase.from('donors').select('id, main_id, sub_id, name').eq('is_active', true).neq('name', '匿名奉獻').order('name'),
         supabase.from('bank_accounts').select('*').order('name'),
-        supabase.from('payment_methods').select('*'),
+        supabase.from('offering_methods').select('*'),
+        supabase.from('donors').select('id').eq('name', '匿名奉獻').maybeSingle(),
       ])
 
       if (typesRes.error) throw typesRes.error
 
-      setOfferingTypes(typesRes.data || [])
+      const allTypes = typesRes.data || []
+      setOfferingTypes(allTypes)
       setFunds(fundsRes.data || [])
       setDonors(donorsRes.data || [])
       setBankAccounts(banksRes.data || [])
@@ -148,9 +151,40 @@ export default function OfferingFormPage() {
       const methods = methodsRes.data || []
       setPaymentMethods(methods)
 
-      // 預設選第一個付款方式
-      if (methods.length > 0) {
-        setForm(prev => ({ ...prev, payment_method_id: String(methods[0].id) }))
+      // 取得匿名奉獻 donor id
+      if (anonRes.data?.id) setAnonymousDonorId(anonRes.data.id)
+
+      if (isEdit) {
+        // ── 編輯模式：載入現有資料預填表單 ──────────────────
+        const { data: existing, error: eErr } = await supabase
+          .from('offerings').select('*').eq('id', id).single()
+        if (eErr) throw eErr
+
+        const type     = allTypes.find(t => t.id === existing.offering_type_id)
+        const autoFund = type ? ['什一', '感恩'].includes(type.envelope_label) : false
+
+        setIsAutoFund(autoFund)
+        setForm({
+          offering_type_id:   existing.offering_type_id  ? String(existing.offering_type_id)   : '',
+          account_name:       type?.default_account       || '',
+          fund_id:            existing.fund_id            ? String(existing.fund_id)            : '',
+          donor_id:           existing.donor_id           || '',
+          is_anonymous:       existing.is_anonymous       || false,
+          offering_detail:    existing.offering_detail    || '',
+          amount:             existing.amount   != null   ? String(existing.amount)             : '',
+          offering_date:      existing.offering_date      || todayStr(),
+          accounting_week:    existing.accounting_week    || '',
+          offering_method_id: existing.offering_method_id ? String(existing.offering_method_id) : '',
+          bank_account_id:    existing.bank_account_id   ? String(existing.bank_account_id)    : '',
+          transfer_info:      existing.transfer_info      || '',
+          receipt_pref:       existing.receipt_pref != null ? String(existing.receipt_pref)    : '0',
+          note:               existing.note               || '',
+        })
+      } else {
+        // ── 新增模式：預設選第一個存款方式 ───────────────────
+        if (methods.length > 0) {
+          setForm(prev => ({ ...prev, offering_method_id: String(methods[0].id) }))
+        }
       }
     } catch (err) {
       setError('載入資料失敗：' + err.message)
@@ -207,7 +241,7 @@ export default function OfferingFormPage() {
   }
 
   // 判斷目前選擇的付款方式是否為轉帳
-  const selectedMethod = paymentMethods.find(m => String(m.id) === String(form.payment_method_id))
+  const selectedMethod = paymentMethods.find(m => String(m.id) === String(form.offering_method_id))
   const isTransfer = selectedMethod?.method_name?.includes('轉帳') ?? false
 
   // ── 驗證 ──────────────────────────────────────────────────
@@ -217,7 +251,7 @@ export default function OfferingFormPage() {
     if (!form.amount || parseFloat(form.amount) <= 0) return '金額為必填且須大於 0'
     if (!form.offering_date)                 return '奉獻日期為必填'
     if (!form.accounting_week)               return '週別日期為必填'
-    if (!form.is_anonymous && !form.donor_id) return '請選擇奉獻人，或勾選匿名'
+    if (!form.is_anonymous && !form.donor_id) return '請選擇奉獻人，或勾選匿名奉獻'
     if (isTransfer && !form.bank_account_id) return '請選擇轉帳戶頭'
     return null
   }
@@ -235,12 +269,12 @@ export default function OfferingFormPage() {
       offering_type_id:  form.offering_type_id  || null,
       offering_detail:   form.offering_detail.trim() || null,
       fund_id:           form.fund_id            || null,
-      donor_id:          form.is_anonymous ? ANONYMOUS_DONOR_ID : (form.donor_id || null),
+      donor_id:          form.is_anonymous ? (anonymousDonorId || null) : (form.donor_id || null),
       is_anonymous:      form.is_anonymous,
       amount:            parseFloat(form.amount),
       offering_date:     form.offering_date,
       accounting_week:   form.accounting_week,
-      payment_method_id: form.payment_method_id  ? Number(form.payment_method_id) : null,
+      offering_method_id: form.offering_method_id  ? Number(form.offering_method_id) : null,
       bank_account_id:   isTransfer ? (form.bank_account_id || null) : null,
       transfer_info:     isTransfer ? (form.transfer_info   || null) : null,
       receipt_pref:      Number(form.receipt_pref),
@@ -248,8 +282,13 @@ export default function OfferingFormPage() {
     }
 
     try {
-      const { error: err } = await supabase.from('offerings').insert(payload)
-      if (err) throw err
+      if (isEdit) {
+        const { error: err } = await supabase.from('offerings').update(payload).eq('id', id)
+        if (err) throw err
+      } else {
+        const { error: err } = await supabase.from('offerings').insert(payload)
+        if (err) throw err
+      }
       navigate('/offerings')
     } catch (err) {
       setError('儲存失敗：' + err.message)
@@ -265,7 +304,7 @@ export default function OfferingFormPage() {
   return (
     <div className="max-w-2xl">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">新增奉獻</h2>
+        <h2 className="text-2xl font-bold text-gray-800">{isEdit ? '編輯奉獻' : '新增奉獻'}</h2>
         <p className="text-sm text-gray-500 mt-0.5">填寫奉獻收入資料</p>
       </div>
 
@@ -355,14 +394,14 @@ export default function OfferingFormPage() {
                   checked={form.is_anonymous}
                   onChange={e => {
                     if (e.target.checked) {
-                      setForm(prev => ({ ...prev, is_anonymous: true, donor_id: ANONYMOUS_DONOR_ID }))
+                      setForm(prev => ({ ...prev, is_anonymous: true, donor_id: anonymousDonorId || '' }))
                     } else {
                       setForm(prev => ({ ...prev, is_anonymous: false, donor_id: '' }))
                     }
                   }}
                   className="accent-blue-600"
                 />
-                <span className="text-xs text-gray-600">匿名</span>
+                <span className="text-xs text-gray-600">匿名奉獻</span>
               </label>
             </div>
             {form.is_anonymous ? (
@@ -428,14 +467,14 @@ export default function OfferingFormPage() {
                 <label key={m.id} className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="radio"
-                    name="payment_method_id"
+                    name="offering_method_id"
                     value={String(m.id)}
-                    checked={String(form.payment_method_id) === String(m.id)}
+                    checked={String(form.offering_method_id) === String(m.id)}
                     onChange={e => {
-                      handleChange('payment_method_id', e.target.value)
+                      handleChange('offering_method_id', e.target.value)
                       // 切換非轉帳時清空轉帳欄位
                       if (!m.method_name?.includes('轉帳')) {
-                        setForm(prev => ({ ...prev, payment_method_id: e.target.value, bank_account_id: '', transfer_info: '' }))
+                        setForm(prev => ({ ...prev, offering_method_id: e.target.value, bank_account_id: '', transfer_info: '' }))
                       }
                     }}
                     className="accent-blue-600"
