@@ -27,7 +27,7 @@ function newEmptyItem() {
     item_name:     '',
     amount:        '',
     payer_id:      '',
-    remarks:       '',
+    note:       '',
   }
 }
 
@@ -243,7 +243,7 @@ export default function ExpenseFormPage() {
         item_name:     item.item_name.trim(),
         amount:        parseFloat(item.amount),
         payer_id:      item.payer_id      !== '' ? item.payer_id   : null,
-        remarks:       item.remarks       || null,
+        note:       item.note       || null,
       }))
 
       const { error: itemsError } = await supabase
@@ -533,8 +533,8 @@ export default function ExpenseFormPage() {
                   <label className="block text-xs font-medium text-gray-500 mb-1">備註</label>
                   <input
                     type="text"
-                    value={item.remarks}
-                    onChange={e => handleItemChange(index, 'remarks', e.target.value)}
+                    value={item.note}
+                    onChange={e => handleItemChange(index, 'note', e.target.value)}
                     placeholder="選填"
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />

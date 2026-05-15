@@ -2,8 +2,10 @@ import { Outlet, NavLink } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 const navItems = [
-  { to: '/',        label: '總覽',   end: true  },
-  { to: '/expense', label: '支出請款', end: false },
+  { to: '/',          label: '總覽',    end: true  },
+  { to: '/expense',   label: '支出請款', end: false },
+  { to: '/offerings', label: '奉獻記帳', end: false },
+  { to: '/donors',    label: '奉獻者',  end: false },
 ]
 
 export default function Layout() {

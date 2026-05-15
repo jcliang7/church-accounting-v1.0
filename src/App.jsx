@@ -5,6 +5,10 @@ import DashboardPage from './pages/dashboard/DashboardPage'
 import Layout from './components/Layout'
 import ExpenseListPage from './pages/expense/ExpenseListPage'
 import ExpenseFormPage from './pages/expense/ExpenseFormPage'
+import DonorListPage from './pages/donor/DonorListPage'
+import DonorFormPage from './pages/donor/DonorFormPage'
+import OfferingListPage from './pages/offering/OfferingListPage'
+import OfferingFormPage from './pages/offering/OfferingFormPage'
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -28,6 +32,12 @@ function AppRoutes() {
         <Route index element={<DashboardPage />} />
         <Route path="expense" element={<ExpenseListPage />} />
         <Route path="expense/new" element={<ExpenseFormPage />} />
+        <Route path="donors" element={<DonorListPage />} />
+        <Route path="donors/new" element={<DonorFormPage />} />
+        <Route path="donors/:id/edit" element={<DonorFormPage />} />
+        <Route path="offerings" element={<OfferingListPage />} />
+        <Route path="offerings/new" element={<OfferingFormPage />} />
+        <Route path="offerings/:id/edit" element={<OfferingFormPage />} />
       </Route>
     </Routes>
   )
