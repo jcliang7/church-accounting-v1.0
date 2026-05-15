@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
 
@@ -35,6 +35,8 @@ function newEmptyItem() {
 export default function ExpenseFormPage() {
   const { profile } = useAuth()
   const navigate = useNavigate()
+  const { id }   = useParams()          // 有 id 表示編輯模式
+  const isEdit   = !!id
 
   // 查詢資料（下拉選單用）
   const [members,     setMembers]     = useState([])
@@ -74,21 +76,22 @@ export default function ExpenseFormPage() {
   // ── 載入查詢資料 ──────────────────────────────────────────
   async function loadData() {
     try {
-      const [membersRes, fundsRes, subjectsRes, detailsRes, methodsRes] =
-        await Promise.all([
-          supabase.from('members').select('*').eq('is_active', true).order('full_name'),
-          supabase.from('ministry_funds').select('*').order('name'),
-          supabase.from('subject_category_mapping').select('*').order('subject_name'),
-          supabase.from('accounting_item_mapping').select('*').order('item_detail_name'),
-          supabase.from('payment_methods').select('*'),
-        ])
+      const basePromises = [
+        supabase.from('members').select('*').eq('is_active', true).order('full_name'),
+        supabase.from('ministry_funds').select('*').order('name'),
+        supabase.from('subject_category_mapping').select('*').order('subject_name'),
+        supabase.from('accounting_item_mapping').select('*').order('item_detail_name'),
+        supabase.from('payment_methods').select('*'),
+      ]
+      if (isEdit) {
+        basePromises.push(
+          supabase.from('payment_requests').select('*').eq('id', id).single(),
+          supabase.from('expense_items').select('*').eq('request_id', id).order('id'),
+        )
+      }
 
-      // ── Debug：可在瀏覽器 console 確認資料 ──
-      // console.log('[members]',  membersRes.data, membersRes.error)
-      // console.log('[funds]',    fundsRes.data,   fundsRes.error)
-      // console.log('[subjects]', subjectsRes.data, subjectsRes.error)
-      // console.log('[details]',  detailsRes.data,  detailsRes.error)
-      // console.log('[methods]',  methodsRes.data,  methodsRes.error)
+      const [membersRes, fundsRes, subjectsRes, detailsRes, methodsRes, requestRes, itemsRes] =
+        await Promise.all(basePromises)
 
       // 收集錯誤訊息（不 throw，讓其他資料繼續設定）
       const errMsgs = [
@@ -99,11 +102,13 @@ export default function ExpenseFormPage() {
       ].filter(Boolean)
       if (errMsgs.length > 0) setError('部分資料載入失敗：' + errMsgs.join('、'))
 
-      const membersList = membersRes.data || []
+      const membersList  = membersRes.data  || []
+      const subjectsList = subjectsRes.data || []
+      const detailsList  = detailsRes.data  || []
       setMembers(membersList)
       setFunds(fundsRes.data || [])
-      setSubjects(subjectsRes.data || [])
-      setDetailItems(detailsRes.data || [])
+      setSubjects(subjectsList)
+      setDetailItems(detailsList)
 
       // 取「現金」付款方式 ID
       const cashMethod = (methodsRes.data || []).find(
@@ -111,22 +116,50 @@ export default function ExpenseFormPage() {
       )
       setCashMethodId(cashMethod?.id ?? null)
 
-      // 所有角色都預設帶入目前登入者作為申請人
-      const myMember = membersList.find(m => m.full_name === profile.full_name)
-      if (myMember) setApplicantId(String(myMember.id))
+      if (isEdit && requestRes?.data) {
+        // ── 編輯模式：從既有資料預填 ──────────────────
+        const req = requestRes.data
+        setTempId(req.temp_id || '')
+        setApplicantId(req.applicant_id  != null ? String(req.applicant_id)  : '')
+        setSupervisorId(req.supervisor_id != null ? String(req.supervisor_id) : '')
 
-      // user 角色：鎖定申請人欄位（不可更改）
-      if (profile?.role === 'user') {
-        setIsUserRole(true)
+        const existingItems = (itemsRes?.data || []).map(item => {
+          const subject = subjectsList.find(s => String(s.id) === String(item.subject_id))
+          const detail  = detailsList.find(d => String(d.id) === String(item.detail_id))
+          return {
+            invoice_date:  item.invoice_date  || '',
+            invoice_no:    item.invoice_no    || '',
+            budget_type:   String(item.budget_type ?? '1'),
+            fund_id:       item.fund_id    != null ? String(item.fund_id)    : '',
+            subject_id:    item.subject_id != null ? String(item.subject_id) : '',
+            category_name: subject?.category_name || '',
+            detail_id:     item.detail_id  != null ? String(item.detail_id)  : '',
+            account_code:  detail?.account_code   || '',
+            account_name:  detail?.account_name   || '',
+            activity_name: item.activity_name || '',
+            item_name:     item.item_name     || '',
+            amount:        item.amount != null ? String(item.amount) : '',
+            payer_id:      item.payer_id != null ? String(item.payer_id) : '',
+            note:          item.note  || '',
+          }
+        })
+        if (existingItems.length > 0) setItems(existingItems)
+      } else {
+        // ── 新增模式：帶入目前登入者為申請人 ──────────
+        const myMember = membersList.find(m => m.full_name === profile.full_name)
+        if (myMember) setApplicantId(String(myMember.id))
+
+        // 預設主管為楊澤宇（若存在）
+        const defaultSupervisor = membersList.find(m => m.full_name === '楊澤宇')
+        if (defaultSupervisor) setSupervisorId(String(defaultSupervisor.id))
+
+        // 產生 temp_id
+        const tid = await generateTempId()
+        setTempId(tid)
       }
 
-      // 預設主管為楊澤宇（若存在）
-      const defaultSupervisor = membersList.find(m => m.full_name === '楊澤宇')
-      if (defaultSupervisor) setSupervisorId(String(defaultSupervisor.id))
-
-      // 產生 temp_id
-      const tid = await generateTempId()
-      setTempId(tid)
+      // user 角色：鎖定申請人欄位（不可更改）
+      if (profile?.role === 'user') setIsUserRole(true)
     } catch (err) {
       setError('載入資料失敗：' + err.message)
     } finally {
@@ -204,7 +237,25 @@ export default function ExpenseFormPage() {
     return null
   }
 
-  // ── 儲存草稿 ──────────────────────────────────────────────
+  // ── 組裝明細列（新增 / 更新都用到）────────────────────────
+  function buildItemRows(requestId) {
+    return items.map(item => ({
+      request_id:    requestId,
+      invoice_date:  item.invoice_date  || null,
+      invoice_no:    item.invoice_no    || null,
+      budget_type:   parseInt(item.budget_type),
+      fund_id:       item.fund_id    !== '' ? item.fund_id    : null,
+      subject_id:    item.subject_id !== '' ? item.subject_id : null,
+      detail_id:     item.detail_id  !== '' ? item.detail_id  : null,
+      activity_name: item.activity_name || null,
+      item_name:     item.item_name.trim(),
+      amount:        parseFloat(item.amount),
+      payer_id:      item.payer_id   !== '' ? item.payer_id   : null,
+      note:          item.note       || null,
+    }))
+  }
+
+  // ── 儲存（新增 or 編輯）──────────────────────────────────
   async function handleSubmit(e) {
     e.preventDefault()
     const errMsg = validate()
@@ -214,45 +265,57 @@ export default function ExpenseFormPage() {
     setError(null)
 
     try {
-      // 1. 新增 payment_request
-      const { data: request, error: reqError } = await supabase
-        .from('payment_requests')
-        .insert({
-          temp_id:           tempId,
-          status:            0,
-          applicant_id:      applicantId  !== '' ? applicantId  : null,
-          supervisor_id:     supervisorId !== '' ? supervisorId : null,
-          payment_method_id: cashMethodId ?? null,
-          total_amount:      totalAmount,
-        })
-        .select()
-        .single()
+      if (isEdit) {
+        // ── 編輯模式 ──────────────────────────────────────
+        // 1. 更新 payment_request 基本欄位
+        const { error: reqError } = await supabase
+          .from('payment_requests')
+          .update({
+            applicant_id:  applicantId  !== '' ? applicantId  : null,
+            supervisor_id: supervisorId !== '' ? supervisorId : null,
+            total_amount:  totalAmount,
+          })
+          .eq('id', id)
+        if (reqError) throw reqError
 
-      if (reqError) throw reqError
+        // 2. 刪除舊 expense_items，重新插入
+        const { error: delError } = await supabase
+          .from('expense_items')
+          .delete()
+          .eq('request_id', id)
+        if (delError) throw delError
 
-      // 2. 新增 expense_items
-      const itemsToInsert = items.map(item => ({
-        request_id:    request.id,
-        invoice_date:  item.invoice_date  || null,
-        invoice_no:    item.invoice_no    || null,
-        budget_type:   parseInt(item.budget_type),
-        fund_id:       item.fund_id       !== '' ? item.fund_id    : null,
-        subject_id:    item.subject_id    !== '' ? item.subject_id : null,
-        detail_id:     item.detail_id     !== '' ? item.detail_id  : null,
-        activity_name: item.activity_name || null,
-        item_name:     item.item_name.trim(),
-        amount:        parseFloat(item.amount),
-        payer_id:      item.payer_id      !== '' ? item.payer_id   : null,
-        note:       item.note       || null,
-      }))
+        const { error: itemsError } = await supabase
+          .from('expense_items')
+          .insert(buildItemRows(id))
+        if (itemsError) throw itemsError
 
-      const { error: itemsError } = await supabase
-        .from('expense_items')
-        .insert(itemsToInsert)
+        navigate(`/expense/${id}`)
+      } else {
+        // ── 新增模式 ──────────────────────────────────────
+        // 1. 新增 payment_request
+        const { data: newRequest, error: reqError } = await supabase
+          .from('payment_requests')
+          .insert({
+            temp_id:           tempId,
+            status:            0,
+            applicant_id:      applicantId  !== '' ? applicantId  : null,
+            supervisor_id:     supervisorId !== '' ? supervisorId : null,
+            payment_method_id: cashMethodId ?? null,
+            total_amount:      totalAmount,
+          })
+          .select()
+          .single()
+        if (reqError) throw reqError
 
-      if (itemsError) throw itemsError
+        // 2. 新增 expense_items
+        const { error: itemsError } = await supabase
+          .from('expense_items')
+          .insert(buildItemRows(newRequest.id))
+        if (itemsError) throw itemsError
 
-      navigate('/expense')
+        navigate('/expense')
+      }
     } catch (err) {
       setError('儲存失敗：' + err.message)
       setSaving(false)
@@ -273,8 +336,12 @@ export default function ExpenseFormPage() {
     <div className="max-w-4xl">
       {/* 頁首 */}
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">新增請款單</h2>
-        <p className="text-sm text-gray-500 mt-0.5">填寫支出請款資料，儲存後為草稿狀態</p>
+        <h2 className="text-2xl font-bold text-gray-800">
+          {isEdit ? '編輯請款單' : '新增請款單'}
+        </h2>
+        <p className="text-sm text-gray-500 mt-0.5">
+          {isEdit ? '修改支出請款資料，儲存後回到詳細頁' : '填寫支出請款資料，儲存後為草稿狀態'}
+        </p>
       </div>
 
       {/* 錯誤訊息 */}
@@ -564,7 +631,7 @@ export default function ExpenseFormPage() {
           <div className="flex gap-3">
             <button
               type="button"
-              onClick={() => navigate('/expense')}
+              onClick={() => navigate(isEdit ? `/expense/${id}` : '/expense')}
               className="px-5 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition"
             >
               取消
@@ -574,7 +641,7 @@ export default function ExpenseFormPage() {
               disabled={saving}
               className="px-5 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
             >
-              {saving ? '儲存中…' : '儲存草稿'}
+              {saving ? '儲存中…' : (isEdit ? '儲存修改' : '儲存草稿')}
             </button>
           </div>
         </div>

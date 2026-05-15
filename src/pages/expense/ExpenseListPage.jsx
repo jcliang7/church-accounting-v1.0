@@ -120,14 +120,16 @@ export default function ExpenseListPage() {
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">正式編號</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">申請人</th>
                 <th className="text-right px-4 py-3 text-gray-500 font-medium">總金額</th>
+                <th className="text-left px-4 py-3 text-gray-500 font-medium">週別日期</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">建立日期</th>
+                <th className="px-4 py-3 w-16"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {requests.map(req => {
                 const status = STATUS_MAP[req.status] ?? STATUS_MAP[0]
                 return (
-                  <tr key={req.id} className="hover:bg-gray-50 transition">
+                  <tr key={req.id} onClick={() => navigate(`/expense/${req.id}`)} className="hover:bg-gray-50 transition cursor-pointer">
                     <td className="px-4 py-3">
                       <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${status.cls}`}>
                         {status.text}
@@ -146,7 +148,20 @@ export default function ExpenseListPage() {
                       NT$ {Number(req.total_amount ?? 0).toLocaleString()}
                     </td>
                     <td className="px-4 py-3 text-gray-500">
+                      {req.accounting_week
+                        ? new Date(req.accounting_week + 'T00:00:00').toLocaleDateString('zh-TW')
+                        : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500">
                       {new Date(req.created_at).toLocaleDateString('zh-TW')}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={e => { e.stopPropagation(); navigate(`/expense/${req.id}`) }}
+                        className="text-blue-600 hover:underline text-xs"
+                      >
+                        查看
+                      </button>
                     </td>
                   </tr>
                 )

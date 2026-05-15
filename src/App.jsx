@@ -5,6 +5,7 @@ import DashboardPage from './pages/dashboard/DashboardPage'
 import Layout from './components/Layout'
 import ExpenseListPage from './pages/expense/ExpenseListPage'
 import ExpenseFormPage from './pages/expense/ExpenseFormPage'
+import ExpenseDetailPage from './pages/expense/ExpenseDetailPage'
 import DonorListPage from './pages/donor/DonorListPage'
 import DonorFormPage from './pages/donor/DonorFormPage'
 import OfferingListPage from './pages/offering/OfferingListPage'
@@ -32,6 +33,8 @@ function AppRoutes() {
         <Route index element={<DashboardPage />} />
         <Route path="expense" element={<ExpenseListPage />} />
         <Route path="expense/new" element={<ExpenseFormPage />} />
+        <Route path="expense/:id" element={<ExpenseDetailPage />} />
+        <Route path="expense/:id/edit" element={<ExpenseFormPage />} />
         <Route path="donors" element={<DonorListPage />} />
         <Route path="donors/new" element={<DonorFormPage />} />
         <Route path="donors/:id/edit" element={<DonorFormPage />} />
